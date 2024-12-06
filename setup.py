@@ -23,7 +23,7 @@ setuptools.setup(
     description="UK Water Quality",
     #long_description=long_description,
     #long_description_content_type="text/markdown",
-    url="https://github.com/lonanni/InnovationProject-WaterQuality",
+    url="https://github.com/lonanni/InnovationProject_WaterQuality",
     packages=setuptools.find_packages(),
     classifiers=[
         "Programming Language :: Python :: 3",
