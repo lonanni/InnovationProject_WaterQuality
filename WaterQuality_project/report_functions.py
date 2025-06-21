@@ -8,6 +8,48 @@ from sklearn.gaussian_process.kernels import (RationalQuadratic, Exponentiation,
 from sklearn.gaussian_process import GaussianProcessRegressor
 
 
+def preprocessing(df):
+    """
+    Filters and pivots dataset to retain only frequently observed determinants.
+
+    This function filters out determinants (i.e., measurement types) that appear in fewer than 25% of the total 
+    unique sampling times. The remaining data is pivoted to have determinants as columns and 
+    sampling time and location information as the index.
+
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        The input DataFrame containing water quality data. Expected to include at least the following columns:
+        - 'determinand.definition'
+        - 'sample.sampleDateTime'
+        - 'result'
+        - 'sample.samplingPoint.easting'
+        - 'sample.samplingPoint.northing'
+        - 'sample.sampledMaterialType.label'
+        - '@id'
+
+    Returns
+    -------
+    pandas.DataFrame
+        A pivoted DataFrame where each row represents a sampling event and location, and each column 
+        corresponds to a frequently measured determinant.
+    """
+   
+    determinants = set(df['determinand.definition'])
+
+    sampling_time = set(df['sample.sampleDateTime'])
+
+
+    frequent_determinant = []
+    for det in determinants:
+        if len(df[df['determinand.definition']== det]["result"])>len(sampling_time)/4:
+            frequent_determinant.append(det)
+    df_sub = df[df['determinand.definition'].isin(frequent_determinant)]
+    piv = df_sub.pivot(index=['sample.sampleDateTime', "sample.samplingPoint.easting","sample.samplingPoint.northing", 
+     "sample.sampledMaterialType.label", '@id'],\
+                    columns=['determinand.definition',], values='result')   
+    piv = piv.reset_index()
+    return piv
 
 def quantiles_check(df, nutrients):
     q_low = df[nutrients[0::]].quantile(0.01)
