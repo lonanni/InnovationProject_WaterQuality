@@ -3,10 +3,10 @@ style1 = {
     'lines.antialiased': True,
     'font.family': 'serif',
     'text.usetex' : True,
-    'axes.titlesize' : 24,
-    'axes.labelsize' : 20,
-    'xtick.labelsize' : 20,
-    'ytick.labelsize' : 20,
+    'axes.titlesize' : 15,
+    'axes.labelsize' : 15,
+    'xtick.labelsize' : 15,
+    'ytick.labelsize' : 15,
     'xtick.major.size':   10,    # major tick size in points
     'xtick.minor.size':    5,      # minor tick size in points
     'ytick.major.size':   10,     # major tick size in points

@@ -63,6 +63,7 @@ class WaterQualityProcessor:
             - 'sample.samplingPoint.easting'
             - 'sample.samplingPoint.northing'
             - 'sample.sampledMaterialType.label'
+            - "sample.samplingPoint.notation"
             - '@id'
 
         Returns
@@ -82,7 +83,7 @@ class WaterQualityProcessor:
 
         df_sub = df[df['determinand.definition'].isin(frequent_determinants)]
         piv = df_sub.pivot(index=['sample.sampleDateTime', "sample.samplingPoint.easting","sample.samplingPoint.northing",  
-                          "sample.sampledMaterialType.label", '@id'],\
+                          "sample.sampledMaterialType.label", '@id', "sample.samplingPoint.notation"],\
                    columns=['determinand.definition'], values='result').reset_index()
         piv.columns.name = None
 
@@ -907,6 +908,17 @@ def extract_samples_by_water_system(
     }
 
 def quantiles_check(df, nutrients):
+    """
+    Replaces extreme values (below 1st percentile or above 99th percentile) 
+    in the specified nutrient columns with NaN.
+
+    Parameters:
+    - df (pd.DataFrame): Input dataframe containing nutrient data.
+    - nutrients (list of str): List of column names representing nutrient measurements.
+
+    Returns:
+    - pd.DataFrame: DataFrame with outliers replaced by NaN in the specified nutrient columns.
+    """
     q_low = df[nutrients[0::]].quantile(0.01)
     q_hi  = df[nutrients[0::]].quantile(0.99)
     
@@ -914,23 +926,18 @@ def quantiles_check(df, nutrients):
     df_return[nutrients[0::]] = np.where( ((df[nutrients[0::]] < q_hi) & (df[nutrients[0::]] > q_low)), df[nutrients[0::]], np.nan)
     return df_return
 
-
-def sum_year(df, notation, nutrients_to_sum):
-    if np.size(notation)==1:
-        df = df.sort_values(by="Date", ascending=True).reset_index()
-        date = df[(df["sample.samplingPoint.notation"]==notation)]["Date"]
-        sum_year = df[(df["sample.samplingPoint.notation"]==notation)][nutrients_to_sum].sum(min_count=1, axis=1)
-        
-    else:
-        df = df.sort_values(by="Date", ascending=True).reset_index()
-        date = df[(df["sample.samplingPoint.notation"].isin(notation))]["Date"]
-        sum_year = df[(df["sample.samplingPoint.notation"].isin(notation))][nutrients_to_sum].sum(min_count=1, axis=1)
-        
-        
-
-    return(pd.concat([date, sum_year], axis=1, keys=['Date', 'sum']))
-
 def sum_seasons(df, notation, nutrients_to_sum):
+    """
+    Computes seasonal (summer and winter) sums of nutrients for given sampling point(s).
+
+    Parameters:
+    - df (pd.DataFrame): Input dataframe with 'Date', 'season', and nutrient columns.
+    - notation (str or list of str): Sampling point(s) to filter by.
+    - nutrients_to_sum (list of str): List of nutrient columns to sum.
+
+    Returns:
+    - tuple of pd.DataFrame: (summer_df, winter_df), each with columns ['Date', 'sum'].
+    """
     df = df.sort_values(by="Date", ascending=True).reset_index()
 
     if np.size(notation)==1:
@@ -940,55 +947,206 @@ def sum_seasons(df, notation, nutrients_to_sum):
         date_winter = df[(df["sample.samplingPoint.notation"]==notation)&(df["season"]==1)]["Date"]
         dain_winter = df[(df["sample.samplingPoint.notation"]==notation)&(df["season"]==1)][nutrients_to_sum].sum(min_count=1, axis=1)
     else:
-
         date_summer = df[(df["sample.samplingPoint.notation"].isin(notation))&(df["season"]==0)]["Date"]
         dain_summer = df[(df["sample.samplingPoint.notation"].isin(notation))&(df["season"]==0)][nutrients_to_sum].sum(min_count=1, axis=1)
 
         date_winter = df[(df["sample.samplingPoint.notation"].isin(notation))&(df["season"]==1)]["Date"]
         dain_winter = df[(df["sample.samplingPoint.notation"].isin(notation))&(df["season"]==1)][nutrients_to_sum].sum(min_count=1, axis=1)
-    return(pd.concat([date_summer, dain_summer], axis=1, keys=['Date', 'sum']), pd.concat([date_winter, dain_winter], axis=1, keys=['Date', 'sum']))
+
+    return(pd.concat([date_summer, dain_summer], axis=1, keys=['Date', 'sum']),
+           pd.concat([date_winter, dain_winter], axis=1, keys=['Date', 'sum']))
 
 def plot_sum_summer(df, notation, nutrients_to_sum, ax=None, plt_kwargs={}, sct_kwargs={}, xlabel=None, ylabel=None, plot_title=None, label_str=None):
-	df = df.sort_values(by="Date", ascending=True).reset_index()
+    """
+    Plots summer nutrient sums over time for the specified sampling point(s).
 
-	df_summer, df_winter = sum_seasons(df, notation, nutrients_to_sum)
-		
-	if ax is None:
-		ax = plt.gca()		
-	ax.scatter(df_summer["Date"], df_summer["sum"], zorder=2, **sct_kwargs, label=label_str)
+    Parameters:
+    - df (pd.DataFrame): Dataframe containing nutrient and seasonal data.
+    - notation (str or list of str): Sampling point(s) to filter by.
+    - nutrients_to_sum (list of str): Columns to be summed.
+    - ax (matplotlib.axes.Axes, optional): Axis to draw on.
+    - plt_kwargs (dict): Additional plot keyword arguments.
+    - sct_kwargs (dict): Keyword arguments for scatter plot.
+    - xlabel (str): X-axis label.
+    - ylabel (str): Y-axis label.
+    - plot_title (str): Title of the plot.
+    - label_str (str): Label for the legend.
 
-	if ylabel != None:
-		ax.set_ylabel(str(ylabel))
-	if xlabel != None:
-		ax.set_xlabel(str(xlabel))
-	if label_str != None:
-		ax.legend(fontsize=18)
-	if plot_title != None:
-		ax.set_title(label=str(plot_title), fontsize=22)
-			
-	return(ax)
+    Returns:
+    - matplotlib.axes.Axes: The modified axis with the plot.
+    """
+    df = df.sort_values(by="Date", ascending=True).reset_index()
+    df_summer, df_winter = sum_seasons(df, notation, nutrients_to_sum)
 
-def plot_sum_winter(df, notation, nutrients_to_sum, ax=None,  plt_kwargs={}, sct_kwargs={}, xlabel=None, ylabel=None, plot_title=None, label_str=None):
+    if ax is None:
+        ax = plt.gca()
+    ax.scatter(df_summer["Date"], df_summer["sum"], zorder=2, **sct_kwargs, label=label_str)
 
-	df_summer, df_winter = sum_seasons(df, notation, nutrients_to_sum)
-		
-	if ax is None:
-		ax = plt.gca()		
-	ax.scatter(df_winter["Date"], df_winter["sum"], zorder=2, **sct_kwargs, label=label_str)
+    if ylabel != None:
+        ax.set_ylabel(str(ylabel))
+    if xlabel != None:
+        ax.set_xlabel(str(xlabel))
+    if label_str != None:
+        ax.legend(fontsize=18)
+    if plot_title != None:
+        ax.set_title(label=str(plot_title), fontsize=22)
 
-	if ylabel != None:
-		ax.set_ylabel(str(ylabel))
-	if xlabel != None:
-		ax.set_xlabel(str(xlabel))
-	if label_str != None:
-		ax.legend(fontsize=18)
-	if plot_title != None:
-		ax.set_title(label=str(plot_title), fontsize=22)
-			
-	return(ax)
+    return(ax)
+def plot_sum_winter(df, notation, nutrients_to_sum, ax=None, plt_kwargs={}, sct_kwargs={}, xlabel=None, ylabel=None, plot_title=None, label_str=None):
+    """
+    Plots winter nutrient sums over time for the specified sampling point(s).
+
+    Parameters:
+    - df (pd.DataFrame): Dataframe containing nutrient and seasonal data.
+    - notation (str or list of str): Sampling point(s) to filter by.
+    - nutrients_to_sum (list of str): Columns to be summed.
+    - ax (matplotlib.axes.Axes, optional): Axis to draw on.
+    - plt_kwargs (dict): Additional plot keyword arguments.
+    - sct_kwargs (dict): Keyword arguments for scatter plot.
+    - xlabel (str): X-axis label.
+    - ylabel (str): Y-axis label.
+    - plot_title (str): Title of the plot.
+    - label_str (str): Label for the legend.
+
+    Returns:
+    - matplotlib.axes.Axes: The modified axis with the plot.
+    """
+    df_summer, df_winter = sum_seasons(df, notation, nutrients_to_sum)
+
+    if ax is None:
+        ax = plt.gca()
+    ax.scatter(df_winter["Date"], df_winter["sum"], zorder=2, **sct_kwargs, label=label_str)
+
+    if ylabel != None:
+        ax.set_ylabel(str(ylabel))
+    if xlabel != None:
+        ax.set_xlabel(str(xlabel))
+    if label_str != None:
+        ax.legend(fontsize=18)
+    if plot_title != None:
+        ax.set_title(label=str(plot_title), fontsize=22)
+
+    return(ax)
+
+def sum_seasons_by_water_type(df, label, water_type_map, nutrients_to_sum):
+    """
+    Computes seasonal (summer and winter) sums of nutrients for a given water type.
+
+    Parameters:
+    - df (pd.DataFrame): Input dataframe with 'Date', 'season', 'sample.sampledMaterialType.label', and nutrient columns.
+    - water_type_label (str): Water type to filter by (e.g., 'River water').
+    - nutrients_to_sum (list of str): List of nutrient columns to sum.
+
+    Returns:
+    - tuple of pd.DataFrame: (summer_df, winter_df), each with columns ['Date', 'sum'].
+    """
+    df = df.sort_values(by="Date", ascending=True).reset_index(drop=True)
+    water_label = water_type_map[label]
+
+    df_type = df[df["sample.sampledMaterialType.label"] == water_label]
+
+    date_summer = df_type[df_type["season"] == 0]["Date"]
+    dain_summer = df_type[df_type["season"] == 0][nutrients_to_sum].sum(min_count=1, axis=1)
+
+    date_winter = df_type[df_type["season"] == 1]["Date"]
+    dain_winter = df_type[df_type["season"] == 1][nutrients_to_sum].sum(min_count=1, axis=1)
+
+    return (
+        pd.concat([date_summer, dain_summer], axis=1, keys=["Date", "sum"]),
+        pd.concat([date_winter, dain_winter], axis=1, keys=["Date", "sum"])
+    )	
+
+
+def plot_water_type_dain_daiP(label, df, determinants_N, determinants_P, water_type_map):
+    """
+    Plots DAIN and DAIP seasonal (summer/winter) scatter plots for a given water type label.
+    
+    Parameters:
+    -----------
+    label : str
+        One of 'RIVER', 'SEWAGE', 'ESTUARINE', 'TRADE', 'OCEAN'.
+    df : pd.DataFrame
+        DataFrame with columns including 'sample.sampledMaterialType.label', 
+        'sample.samplingPoint.notation', 'Date', 'season', and nutrient columns.
+    determinants_N : list
+        Column names representing nitrogen-related nutrients.
+    determinants_P : list
+        Column names representing phosphorus-related nutrients.
+    water_type_map : dict
+        Mapping from label to full water type name in the data.
+    """
+    water_label = water_type_map[label]
+
+    notations = np.unique(df[df["sample.sampledMaterialType.label"] == water_label]["sample.samplingPoint.notation"])
+
+    fig, axes = plt.subplots(nrows=2, ncols=2, sharey='row', sharex=True, figsize=(10, 7))
+    fig.subplots_adjust(0, 0, 1., 1., 0.05, 0.05)
+
+    for notation in notations:
+        plot_sum_summer(df, notation, determinants_N, ax=axes[0, 0])
+        plot_sum_winter(df, notation, determinants_N, ax=axes[0, 1])
+        plot_sum_summer(df, notation, determinants_P, ax=axes[1, 0])
+        plot_sum_winter(df, notation, determinants_P, ax=axes[1, 1])
+
+    # Formatting
+    axes[0, 1].yaxis.tick_right()
+    axes[0, 1].yaxis.set_label_position("right")
+    axes[0, 1].set_ylabel("DAIN (mg/l)", rotation=270, labelpad=20)
+    axes[0, 1].set_title("winter",)
+    axes[0, 0].set_title("summer",)
+
+    axes[1, 1].yaxis.tick_right()
+    axes[1, 1].yaxis.set_label_position("right")
+    axes[1, 1].set_ylabel("DAIP (mg/l)", rotation=270, labelpad=20)
+
+    axes[1, 0].set_xlabel("Year")
+    axes[1, 1].set_xlabel("Year")
+
+    for ax_row in axes:
+        for ax in ax_row:
+            ax.grid(which='major', color='#CCCCCC', linestyle='--')
+
+    fig.suptitle(f"{water_label} - Seasonal Nutrient Concentrations", fontsize=16)
+    plt.tight_layout()
+    plt.show()	
 	
-	
-	
+def plot_sum_summer_by_water_type(df, label, water_type_map, nutrients_to_sum, ax=None, plt_kwargs={}, sct_kwargs={}, xlabel=None, ylabel=None, plot_title=None, label_str=None):
+    """
+    Plots summer nutrient sums over time for the specified water type.
+
+    Parameters:
+    - df (pd.DataFrame): Dataframe containing nutrient and seasonal data.
+    - water_type_label (str): Water type to filter by (e.g., 'River water').
+    - nutrients_to_sum (list of str): Columns to be summed.
+    - ax (matplotlib.axes.Axes, optional): Axis to draw on.
+    - plt_kwargs (dict): Additional plot keyword arguments.
+    - sct_kwargs (dict): Keyword arguments for scatter plot.
+    - xlabel (str): X-axis label.
+    - ylabel (str): Y-axis label.
+    - plot_title (str): Title of the plot.
+    - label_str (str): Label for the legend.
+
+    Returns:
+    - matplotlib.axes.Axes: The modified axis with the plot.
+    """
+    df = df.sort_values(by="Date", ascending=True).reset_index(drop=True)
+    df_summer, _ = sum_seasons_by_water_type(df, label, water_type_map, nutrients_to_sum)
+
+    if ax is None:
+        ax = plt.gca()
+    ax.scatter(df_summer["Date"], df_summer["sum"], zorder=2, **sct_kwargs, label=label_str)
+
+    if ylabel is not None:
+        ax.set_ylabel(str(ylabel))
+    if xlabel is not None:
+        ax.set_xlabel(str(xlabel))
+    if label_str is not None:
+        ax.legend(fontsize=18)
+    if plot_title is not None:
+        ax.set_title(label=str(plot_title), fontsize=22)
+
+    return ax
+    
 def pred_linreg(x,y, date):
     m, c = np.polyfit(x[(np.isfinite(x))&(np.isfinite(y))], y[(np.isfinite(x))&(np.isfinite(y))], 1)
     y_model = m * date + c
@@ -1029,36 +1187,79 @@ def LinearRegression_boot_summer(df, notation, nutrients_to_sum , ax=None):
     
     return ax
 
-def LinearRegression_boot_winter(df, notation, nutrients_to_sum , ax=None):
-    df_summer, df_winter = sum_seasons(df, notation, nutrients_to_sum)
+def LinearRegression_boot_summer_fast(df, notation, nutrients_to_sum, ax=None, n_boot=500):
+    # Get summer data
+    df_summer, _ = sum_seasons(df, notation, nutrients_to_sum)
     
-    x_df_sec = date_to_sec(df_winter, df)
-    date = date_to_sec(df, df)
+    # Convert date columns to seconds
+    x_df_sec = date_to_sec(df_summer, df)
+    date_sec = date_to_sec(df, df)
     
-    x_df = np.array(df_winter["Date"])
-    y_df = np.array(df_winter["sum"])
-    
-    lr_boot = []
-    for i in range(0, 500):
-        sample_index = np.random.choice(range(0, len(y_df)), len(y_df))
+    x_df = np.array(df_summer["Date"])
+    y_df = np.array(df_summer["sum"])
+    n_samples = len(y_df)
+
+    # Preallocate matrix of bootstrap predictions
+    lr_boot = np.zeros((n_boot, len(date_sec)))
+
+    for i in range(n_boot):
+        sample_index = np.random.randint(0, n_samples, size=n_samples)
         X_samples = x_df_sec[sample_index]
         y_samples = y_df[sample_index]
-        
-        lr_boot.append(pred_linreg(X_samples, y_samples, date))
-    
+        lr_boot[i] = pred_linreg(X_samples, y_samples, date_sec)
 
-    lr_boot = np.array(lr_boot)
-    lr = pred_linreg(x_df_sec, y_df, date)
+    # Compute percentiles
     q_16, q_84 = np.percentile(lr_boot, (16, 84), axis=0)
+
+    # Fit model to full data
+    lr = pred_linreg(x_df_sec, y_df, date_sec)
+
+    # Plot
+    if ax is None:
+        ax = plt.gca()
+
+    ax.fill_between(df["Date"], q_16, q_84, alpha=0.2, color="grey")
+    ax.plot(df["Date"], lr, color='darkblue', zorder=5)
+
+    return ax
+
+def LinearRegression_boot_winter_fast(df, notation, nutrients_to_sum, ax=None, n_boot=500):
+    # Extract winter data
+    _, df_winter = sum_seasons(df, notation, nutrients_to_sum)
     
+    # Convert dates to seconds
+    x_df_sec = date_to_sec(df_winter, df)
+    date_sec = date_to_sec(df, df)
+    
+    # Prepare X and y
+    x_df = np.array(df_winter["Date"])
+    y_df = np.array(df_winter["sum"])
+    n_samples = len(y_df)
+
+    # Preallocate array for bootstrap predictions
+    lr_boot = np.zeros((n_boot, len(date_sec)))
+
+    # Bootstrap loop (vectorized indexing)
+    for i in range(n_boot):
+        sample_index = np.random.randint(0, n_samples, size=n_samples)
+        X_samples = x_df_sec[sample_index]
+        y_samples = y_df[sample_index]
+        lr_boot[i] = pred_linreg(X_samples, y_samples, date_sec)
+
+    # Compute confidence intervals
+    q_16, q_84 = np.percentile(lr_boot, (16, 84), axis=0)
+
+    # Fit linear regression on full winter dataset
+    lr = pred_linreg(x_df_sec, y_df, date_sec)
+
+    # Plotting
     if ax is None:
         ax = plt.gca()
     ax.fill_between(df["Date"], q_16, q_84, alpha=0.2, color="grey")
-
     ax.plot(df["Date"], lr, color='darkblue', zorder=5)
     
     return ax
-    
+
 def GP_missing_date_Xy(df, notation, nutrients_to_sum):
 
     df_sum = sum_year(df, notation, nutrients_to_sum)
@@ -1089,27 +1290,6 @@ def find_all_years(df, notation, nutrients_to_sum):
     
     return(df_year)
     
-def GP_imputing(df, notation, nutrients_to_sum, kernel):
-    
-    X, y, y_mean, p = GP_missing_date_Xy(df, notation, nutrients_to_sum)
-    
-    gaussian_process = GaussianProcessRegressor(kernel=kernel, normalize_y=True)
-    gaussian_process.fit(X, y-y_mean)
-
-    missing_years = find_missing_years(df, notation, nutrients_to_sum)
-    
-    dates_random = pd.to_datetime(missing_years) 
-    df_sum = sum_year(df, notation, nutrients_to_sum).reset_index()
-
-    X_test = np.array((dates_random-pd.to_datetime(df_sum["Date"][0])).total_seconds()*10**-8)
-
-    mean_y_pred, std_y_pred = gaussian_process.predict(X_test.reshape(-1,1), return_std=True)
-    
-    
-    new_values = np.random.normal(mean_y_pred, std_y_pred, len(missing_years))+p(X_test)
-    new_values[new_values<0] = 0.
-
-    return(missing_years, new_values)
     
 def GP_imputing(df, notation, nutrients_to_sum, kernel):
     
